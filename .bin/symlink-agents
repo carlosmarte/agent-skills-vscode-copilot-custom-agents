@@ -1,0 +1,273 @@
+#!/usr/bin/env bash
+# symlink-agents — interactive picker to symlink VSCode's prompts folder to ~/agents
+#
+# Steps:
+#   1) Create preferred folder (default: ~/agents)
+#   2) Move any existing *.prompt.md / *.chatmode.md / *.instructions.md from
+#      VSCode's prompts dir into the preferred folder
+#   3) Backup VSCode's prompts dir as <dir>_bk.<ts> and remove the original
+#   4) Create the symlink once backup is in place
+#
+# Re-runnable. Each step is idempotent and reports its own status.
+# Pick a single step, or "A" to run them all in order.
+
+set -euo pipefail
+
+# ---- config ------------------------------------------------------------------
+
+VSCODE_PROMPTS_DEFAULT="$HOME/Library/Application Support/Code/User/prompts"
+PREFERRED_DEFAULT="$HOME/agents"
+
+PREFERRED="${PREFERRED:-$PREFERRED_DEFAULT}"
+VSCODE_PROMPTS="${VSCODE_PROMPTS:-$VSCODE_PROMPTS_DEFAULT}"
+
+# ---- helpers -----------------------------------------------------------------
+
+c_reset=$'\033[0m'; c_bold=$'\033[1m'; c_dim=$'\033[2m'
+c_red=$'\033[31m'; c_green=$'\033[32m'; c_yellow=$'\033[33m'; c_blue=$'\033[34m'
+
+ok()   { printf "%s✓%s %s\n" "$c_green" "$c_reset" "$*"; }
+info() { printf "%s•%s %s\n" "$c_blue"  "$c_reset" "$*"; }
+warn() { printf "%s!%s %s\n" "$c_yellow" "$c_reset" "$*"; }
+err()  { printf "%s✗%s %s\n" "$c_red"   "$c_reset" "$*" 1>&2; }
+
+confirm() {
+  # confirm "message" — returns 0 on y/Y, 1 otherwise. Defaults to N.
+  local prompt="$1" reply
+  read -r -p "$prompt [y/N] " reply || return 1
+  [[ "$reply" =~ ^[Yy]$ ]]
+}
+
+ts() { date -u +%Y%m%dT%H%M%SZ; }
+
+# Return 0 if PATH is a real symlink whose target matches $PREFERRED.
+is_correct_symlink() {
+  [[ -L "$VSCODE_PROMPTS" ]] && [[ "$(readlink "$VSCODE_PROMPTS")" == "$PREFERRED" ]]
+}
+
+# ---- status ------------------------------------------------------------------
+
+print_status() {
+  printf "\n%sCurrent state%s\n" "$c_bold" "$c_reset"
+  printf "  %sPreferred folder%s   %s" "$c_dim" "$c_reset" "$PREFERRED"
+  if [[ -d "$PREFERRED" ]]; then
+    printf " %s(exists, %d files)%s\n" "$c_green" "$(find "$PREFERRED" -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ')" "$c_reset"
+  else
+    printf " %s(missing)%s\n" "$c_yellow" "$c_reset"
+  fi
+
+  printf "  %sVSCode prompts%s     %s" "$c_dim" "$c_reset" "$VSCODE_PROMPTS"
+  if is_correct_symlink; then
+    printf " %s(symlink → %s)%s\n" "$c_green" "$(readlink "$VSCODE_PROMPTS")" "$c_reset"
+  elif [[ -L "$VSCODE_PROMPTS" ]]; then
+    printf " %s(symlink → %s, wrong target)%s\n" "$c_yellow" "$(readlink "$VSCODE_PROMPTS")" "$c_reset"
+  elif [[ -d "$VSCODE_PROMPTS" ]]; then
+    printf " %s(real directory, %d files)%s\n" "$c_yellow" "$(find "$VSCODE_PROMPTS" -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ')" "$c_reset"
+  else
+    printf " %s(missing)%s\n" "$c_dim" "$c_reset"
+  fi
+
+  local bk_count
+  bk_count=$(find "$(dirname "$VSCODE_PROMPTS")" -maxdepth 1 -name "$(basename "$VSCODE_PROMPTS")_bk.*" 2>/dev/null | wc -l | tr -d ' ')
+  if [[ "$bk_count" -gt 0 ]]; then
+    printf "  %sBackups%s            %s%s found%s\n" "$c_dim" "$c_reset" "$c_green" "$bk_count" "$c_reset"
+  fi
+  printf "\n"
+}
+
+# ---- step 1: create preferred folder -----------------------------------------
+
+step_create_folder() {
+  if [[ -d "$PREFERRED" ]]; then
+    ok "preferred folder already exists: $PREFERRED"
+    return 0
+  fi
+  info "creating $PREFERRED"
+  mkdir -p "$PREFERRED"
+  ok "created $PREFERRED"
+}
+
+# ---- step 2: move existing agents --------------------------------------------
+
+step_move_existing() {
+  if [[ ! -d "$VSCODE_PROMPTS" ]] || [[ -L "$VSCODE_PROMPTS" ]]; then
+    info "no real VSCode prompts directory to move from — skipping"
+    return 0
+  fi
+
+  if [[ ! -d "$PREFERRED" ]]; then
+    err "preferred folder $PREFERRED does not exist — run step 1 first"
+    return 1
+  fi
+
+  shopt -s nullglob dotglob
+  local files=( "$VSCODE_PROMPTS"/* )
+  shopt -u nullglob dotglob
+
+  if [[ ${#files[@]} -eq 0 ]]; then
+    info "VSCode prompts dir is empty — nothing to move"
+    return 0
+  fi
+
+  info "found ${#files[@]} entries in $VSCODE_PROMPTS"
+  printf '    %s\n' "${files[@]##*/}"
+  if ! confirm "move these into $PREFERRED?"; then
+    warn "skipped move"
+    return 0
+  fi
+
+  local moved=0 skipped=0
+  for src in "${files[@]}"; do
+    local base; base="$(basename "$src")"
+    local dst="$PREFERRED/$base"
+    if [[ -e "$dst" ]]; then
+      warn "destination exists, skipping: $dst"
+      skipped=$((skipped + 1))
+      continue
+    fi
+    mv -- "$src" "$dst"
+    moved=$((moved + 1))
+  done
+  ok "moved $moved, skipped $skipped"
+}
+
+# ---- step 3: backup + remove original ----------------------------------------
+
+step_backup_and_remove() {
+  if is_correct_symlink; then
+    info "VSCode prompts is already the correct symlink — nothing to back up"
+    return 0
+  fi
+
+  if [[ -L "$VSCODE_PROMPTS" ]]; then
+    warn "VSCode prompts is a symlink pointing somewhere else: $(readlink "$VSCODE_PROMPTS")"
+    if confirm "remove this stale symlink?"; then
+      rm -- "$VSCODE_PROMPTS"
+      ok "removed stale symlink"
+    else
+      warn "left stale symlink in place — step 4 will fail"
+      return 1
+    fi
+    return 0
+  fi
+
+  if [[ ! -e "$VSCODE_PROMPTS" ]]; then
+    info "VSCode prompts does not exist — nothing to back up"
+    return 0
+  fi
+
+  local backup="${VSCODE_PROMPTS}_bk.$(ts)"
+  info "backing up $VSCODE_PROMPTS → $backup"
+  if ! confirm "proceed with backup + remove?"; then
+    warn "skipped backup"
+    return 1
+  fi
+
+  # Copy (preserve metadata) then remove. cp -R then rm -rf is safer than mv
+  # across an APFS firmlink boundary like ~/Library.
+  cp -R -- "$VSCODE_PROMPTS" "$backup"
+  ok "backup created: $backup"
+  rm -rf -- "$VSCODE_PROMPTS"
+  ok "removed original $VSCODE_PROMPTS"
+}
+
+# ---- step 4: create symlink --------------------------------------------------
+
+step_create_symlink() {
+  if is_correct_symlink; then
+    ok "symlink already correct: $VSCODE_PROMPTS → $PREFERRED"
+    return 0
+  fi
+
+  if [[ -e "$VSCODE_PROMPTS" || -L "$VSCODE_PROMPTS" ]]; then
+    err "cannot create symlink — $VSCODE_PROMPTS still exists. Run step 3 first."
+    return 1
+  fi
+
+  local parent; parent="$(dirname "$VSCODE_PROMPTS")"
+  if [[ ! -d "$parent" ]]; then
+    err "parent directory does not exist: $parent (is VSCode installed?)"
+    return 1
+  fi
+
+  if [[ ! -d "$PREFERRED" ]]; then
+    err "preferred folder does not exist: $PREFERRED — run step 1 first"
+    return 1
+  fi
+
+  info "creating symlink $VSCODE_PROMPTS → $PREFERRED"
+  ln -s -- "$PREFERRED" "$VSCODE_PROMPTS"
+  ok "symlink created"
+}
+
+# ---- driver ------------------------------------------------------------------
+
+run_all() {
+  info "running all steps in order"
+  step_create_folder      || { err "step 1 failed"; return 1; }
+  step_move_existing      || { err "step 2 failed"; return 1; }
+  step_backup_and_remove  || { err "step 3 failed"; return 1; }
+  step_create_symlink     || { err "step 4 failed"; return 1; }
+  ok "all steps complete"
+}
+
+show_menu() {
+  cat <<EOF
+${c_bold}symlink-agents${c_reset} — redirect VSCode's prompts folder to a managed location
+
+Preferred folder : ${PREFERRED}
+VSCode prompts   : ${VSCODE_PROMPTS}
+
+Pick a step:
+  1) Create preferred folder
+  2) Move any existing agents from VSCode prompts → preferred folder
+  3) Backup (_bk.<ts>) and remove the original VSCode prompts folder
+  4) Create the symlink
+  A) Run all of the above in order
+  S) Show status
+  Q) Quit
+EOF
+}
+
+main() {
+  # Non-interactive shortcuts via CLI flag
+  case "${1:-}" in
+    --all|-a)    print_status; run_all; print_status; exit $? ;;
+    --status|-s) print_status; exit 0 ;;
+    --help|-h)
+      show_menu
+      cat <<EOF
+
+Environment overrides:
+  PREFERRED        target directory for agents (default: ~/agents)
+  VSCODE_PROMPTS   VSCode prompts path to symlink (default: ~/Library/Application Support/Code/User/prompts)
+
+Flags:
+  --all, -a        run steps 1–4 non-interactively (still prompts y/N for destructive ops)
+  --status, -s     print current state and exit
+  --help, -h       show this help
+EOF
+      exit 0
+      ;;
+  esac
+
+  while true; do
+    show_menu
+    print_status
+    local choice
+    read -r -p "Choice: " choice || { echo; break; }
+    case "$choice" in
+      1) step_create_folder ;;
+      2) step_move_existing ;;
+      3) step_backup_and_remove ;;
+      4) step_create_symlink ;;
+      A|a) run_all ;;
+      S|s) ;; # status already printed each loop
+      Q|q|"") info "bye"; break ;;
+      *) warn "unknown choice: $choice" ;;
+    esac
+    echo
+  done
+}
+
+main "$@"

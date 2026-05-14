@@ -10,6 +10,47 @@ specs are runtime-neutral and work with any agent loader that reads structured m
 + YAML frontmatter (Claude Code, GitHub Copilot custom chat modes, Cursor agents,
 Continue, raw prompt templates, etc.).
 
+## Install & Update Script
+
+To install or update the `symlink-agents` helper (an interactive picker that
+redirects VSCode's `User/prompts/` to a managed `~/agents/` folder via symlink),
+run one of the following from your terminal:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/carlosmarte/agent-vscode-copilot-custom-agents/main/install.sh | bash
+```
+
+```sh
+wget -qO- https://raw.githubusercontent.com/carlosmarte/agent-vscode-copilot-custom-agents/main/install.sh | bash
+```
+
+The installer drops `symlink-agents` into `~/.local/bin/` and prints next steps.
+Pass flags after `-s --` to customize:
+
+```sh
+# install + run the interactive picker immediately
+curl -fsSL https://raw.githubusercontent.com/carlosmarte/agent-vscode-copilot-custom-agents/main/install.sh | bash -s -- --run
+
+# install to a different prefix
+curl -fsSL https://raw.githubusercontent.com/carlosmarte/agent-vscode-copilot-custom-agents/main/install.sh | bash -s -- --prefix=/usr/local/bin
+
+# pin to a specific tag / branch / commit
+curl -fsSL https://raw.githubusercontent.com/carlosmarte/agent-vscode-copilot-custom-agents/main/install.sh | bash -s -- --ref=v0.1.0
+```
+
+Equivalent env vars: `AGENTS_PREFIX`, `AGENTS_REF`, `AGENTS_RUN=1`.
+
+Once installed, `symlink-agents` offers a menu to:
+
+1. Create your preferred folder (default `~/agents`)
+2. Move any existing prompts from VSCode's directory into it
+3. Backup the original VSCode prompts folder as `prompts_bk.<UTC-ts>` and remove it
+4. Create the symlink
+
+Every step is idempotent and re-runnable. Run `symlink-agents --status` any
+time to see the current state, or `symlink-agents --all` to run all four steps
+non-interactively.
+
 ## Agents
 
 | Agent | File format / location | Edit? | Clean? | Quit VSCode first? |
