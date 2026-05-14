@@ -15,7 +15,7 @@ Whenever you save a file, VSCode writes a copy under `User/History/<hash>/<numer
 ```json
 {
   "version": 1,
-  "resource": "file:///Users/you/work/repo/src/foo.ts",
+  "resource": "file://$HOME/work/repo/src/foo.ts",
   "entries": [
     { "id": "abc123.ts", "source": "Manual save", "timestamp": 1715600000000 },
     { "id": "def456.ts", "source": "File saved",  "timestamp": 1715600300000 }
@@ -53,7 +53,7 @@ hash="abc1234567890abc"
 jq -r '.resource' "$HIST/$hash/entries.json" 2>/dev/null
 
 # 3. Reverse lookup — given a file path, find its history dir:
-TARGET="file:///Users/you/work/repo/src/foo.ts"
+TARGET="file://$HOME/work/repo/src/foo.ts"
 grep -l "\"resource\":\"$TARGET\"" "$HIST"/*/entries.json | xargs -n1 dirname
 
 # 4. Filename-substring search across ALL tracked files:
