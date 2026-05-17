@@ -130,3 +130,15 @@ is plain YAML; the body is plain Markdown.
 - **Custom snippet auditing / prefix collision** → `vscode-snippets`.
 - **Diagnosing a crash or extension activation failure** → `vscode-logs`.
 - **Curiosity about what VSCode itself persists** → `vscode-app-managed-json` (read-only).
+
+### Persistent Configuration File
+
+If you want to permanently hardcode your preferred model without having to set flags or environment variables, you can edit the Copilot CLI configuration file directly.
+
+- Open (or create) `~/.copilot/config.json` (or the equivalent `.copilot/config.json` in your project directory).
+- Add the `default_model` key:
+
+JSON
+```
+`{ "default_model": "gpt-5" } `
+```
