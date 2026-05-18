@@ -142,3 +142,25 @@ JSON
 ```
 `{ "default_model": "gpt-5" } `
 ```
+
+### Disable Specific MCP Servers (CLI Flag)
+
+If you have custom servers set up (like Playwright, Azure, or Git) and want to exclude specific ones at runtime, use:
+
+Bash
+```
+`copilot --disable-mcp-server <ServerName> `
+```
+
+*(e.g., `copilot --disable-mcp-server Playwright --disable-mcp-server ADO`)*
+
+### A Note on Configs
+
+You don't need to pass `/dev/null` for an empty config. If you want a persistent setup that doesn't load any external servers by default, you can simply use an empty JSON object in your MCP config file (`~/.copilot/mcp-config.json`):
+
+JSON
+```
+`{ "mcpServers": {} } `
+```
+
+*(Also, as of recent CLI versions, you can interactively run `/mcp disable <server-name>` inside the Copilot CLI, and it will persistently disable it across sessions).*
